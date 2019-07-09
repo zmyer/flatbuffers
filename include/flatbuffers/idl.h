@@ -34,6 +34,12 @@
 // This file defines the data types representing a parsed IDL (Interface
 // Definition Language) / schema file.
 
+// Limits maximum depth of nested objects.
+// Prevents stack overflow while parse flatbuffers or json.
+#if !defined(FLATBUFFERS_MAX_PARSING_DEPTH)
+#  define FLATBUFFERS_MAX_PARSING_DEPTH 64
+#endif
+
 namespace flatbuffers {
 
 // The order of these matters for Is*() functions below.
@@ -41,25 +47,26 @@ namespace flatbuffers {
 // of type tokens.
 // clang-format off
 #define FLATBUFFERS_GEN_TYPES_SCALAR(TD) \
-  TD(NONE,   "",       uint8_t,  byte,   byte,    byte,   uint8) \
-  TD(UTYPE,  "",       uint8_t,  byte,   byte,    byte,   uint8) /* begin scalar/int */ \
-  TD(BOOL,   "bool",   uint8_t,  boolean,byte,    bool,   bool) \
-  TD(CHAR,   "byte",   int8_t,   byte,   int8,    sbyte,  int8) \
-  TD(UCHAR,  "ubyte",  uint8_t,  byte,   byte,    byte,   uint8) \
-  TD(SHORT,  "short",  int16_t,  short,  int16,   short,  int16) \
-  TD(USHORT, "ushort", uint16_t, short,  uint16,  ushort, uint16) \
-  TD(INT,    "int",    int32_t,  int,    int32,   int,    int32) \
-  TD(UINT,   "uint",   uint32_t, int,    uint32,  uint,   uint32) \
-  TD(LONG,   "long",   int64_t,  long,   int64,   long,   int64) \
-  TD(ULONG,  "ulong",  uint64_t, long,   uint64,  ulong,  uint64) /* end int */ \
-  TD(FLOAT,  "float",  float,    float,  float32, float,  float32) /* begin float */ \
-  TD(DOUBLE, "double", double,   double, float64, double, float64) /* end float/scalar */
+  TD(NONE,   "",       uint8_t,  byte,   byte,    byte,   uint8,   u8) \
+  TD(UTYPE,  "",       uint8_t,  byte,   byte,    byte,   uint8,   u8) /* begin scalar/int */ \
+  TD(BOOL,   "bool",   uint8_t,  boolean,bool,    bool,   bool,    bool) \
+  TD(CHAR,   "byte",   int8_t,   byte,   int8,    sbyte,  int8,    i8) \
+  TD(UCHAR,  "ubyte",  uint8_t,  byte,   byte,    byte,   uint8,   u8) \
+  TD(SHORT,  "short",  int16_t,  short,  int16,   short,  int16,   i16) \
+  TD(USHORT, "ushort", uint16_t, short,  uint16,  ushort, uint16,  u16) \
+  TD(INT,    "int",    int32_t,  int,    int32,   int,    int32,   i32) \
+  TD(UINT,   "uint",   uint32_t, int,    uint32,  uint,   uint32,  u32) \
+  TD(LONG,   "long",   int64_t,  long,   int64,   long,   int64,   i64) \
+  TD(ULONG,  "ulong",  uint64_t, long,   uint64,  ulong,  uint64,  u64) /* end int */ \
+  TD(FLOAT,  "float",  float,    float,  float32, float,  float32, f32) /* begin float */ \
+  TD(DOUBLE, "double", double,   double, float64, double, float64, f64) /* end float/scalar */
 #define FLATBUFFERS_GEN_TYPES_POINTER(TD) \
-  TD(STRING, "string", Offset<void>, int, int, StringOffset, int) \
-  TD(VECTOR, "",       Offset<void>, int, int, VectorOffset, int) \
-  TD(STRUCT, "",       Offset<void>, int, int, int, int) \
-  TD(UNION,  "",       Offset<void>, int, int, int, int)
-
+  TD(STRING, "string", Offset<void>, int, int, StringOffset, int, unused) \
+  TD(VECTOR, "",       Offset<void>, int, int, VectorOffset, int, unused) \
+  TD(STRUCT, "",       Offset<void>, int, int, int,          int, unused) \
+  TD(UNION,  "",       Offset<void>, int, int, int,          int, unused)
+#define FLATBUFFERS_GEN_TYPE_ARRAY(TD) \
+  TD(ARRAY,  "",       int,          int, int, int,          int, unused)
 // The fields are:
 // - enum
 // - FlatBuffers schema type.
@@ -68,12 +75,14 @@ namespace flatbuffers {
 // - Go type.
 // - C# / .Net type.
 // - Python type.
+// - Rust type.
 
 // using these macros, we can now write code dealing with types just once, e.g.
 
 /*
 switch (type) {
-  #define FLATBUFFERS_TD(ENUM, IDLTYPE, CTYPE, JTYPE, GTYPE, NTYPE, PTYPE) \
+  #define FLATBUFFERS_TD(ENUM, IDLTYPE, CTYPE, JTYPE, GTYPE, NTYPE, PTYPE, \
+                         RTYPE) \
     case BASE_TYPE_ ## ENUM: \
       // do something specific to CTYPE here
     FLATBUFFERS_GEN_TYPES(FLATBUFFERS_TD)
@@ -83,20 +92,23 @@ switch (type) {
 
 #define FLATBUFFERS_GEN_TYPES(TD) \
         FLATBUFFERS_GEN_TYPES_SCALAR(TD) \
-        FLATBUFFERS_GEN_TYPES_POINTER(TD)
+        FLATBUFFERS_GEN_TYPES_POINTER(TD) \
+        FLATBUFFERS_GEN_TYPE_ARRAY(TD)
 
 // Create an enum for all the types above.
 #ifdef __GNUC__
 __extension__  // Stop GCC complaining about trailing comma with -Wpendantic.
 #endif
 enum BaseType {
-  #define FLATBUFFERS_TD(ENUM, IDLTYPE, CTYPE, JTYPE, GTYPE, NTYPE, PTYPE) \
+  #define FLATBUFFERS_TD(ENUM, IDLTYPE, CTYPE, JTYPE, GTYPE, NTYPE, PTYPE, \
+                         RTYPE) \
       BASE_TYPE_ ## ENUM,
     FLATBUFFERS_GEN_TYPES(FLATBUFFERS_TD)
   #undef FLATBUFFERS_TD
 };
 
-#define FLATBUFFERS_TD(ENUM, IDLTYPE, CTYPE, JTYPE, GTYPE, NTYPE, PTYPE) \
+#define FLATBUFFERS_TD(ENUM, IDLTYPE, CTYPE, JTYPE, GTYPE, NTYPE, PTYPE, \
+                       RTYPE) \
     static_assert(sizeof(CTYPE) <= sizeof(largest_scalar_t), \
                   "define largest_scalar_t as " #CTYPE);
   FLATBUFFERS_GEN_TYPES(FLATBUFFERS_TD)
@@ -111,6 +123,15 @@ inline bool IsFloat  (BaseType t) { return t == BASE_TYPE_FLOAT ||
 inline bool IsLong   (BaseType t) { return t == BASE_TYPE_LONG ||
                                            t == BASE_TYPE_ULONG; }
 inline bool IsBool   (BaseType t) { return t == BASE_TYPE_BOOL; }
+inline bool IsOneByte(BaseType t) { return t >= BASE_TYPE_UTYPE &&
+                                           t <= BASE_TYPE_UCHAR; }
+
+inline bool IsUnsigned(BaseType t) {
+  return (t == BASE_TYPE_UTYPE)  || (t == BASE_TYPE_UCHAR) ||
+         (t == BASE_TYPE_USHORT) || (t == BASE_TYPE_UINT)  ||
+         (t == BASE_TYPE_ULONG);
+}
+
 // clang-format on
 
 extern const char *const kTypeNames[];
@@ -126,26 +147,32 @@ class Parser;
 // and additional information for vectors/structs_.
 struct Type {
   explicit Type(BaseType _base_type = BASE_TYPE_NONE, StructDef *_sd = nullptr,
-                EnumDef *_ed = nullptr)
+                EnumDef *_ed = nullptr, uint16_t _fixed_length = 0)
       : base_type(_base_type),
         element(BASE_TYPE_NONE),
         struct_def(_sd),
-        enum_def(_ed) {}
+        enum_def(_ed),
+        fixed_length(_fixed_length) {}
 
   bool operator==(const Type &o) {
     return base_type == o.base_type && element == o.element &&
            struct_def == o.struct_def && enum_def == o.enum_def;
   }
 
-  Type VectorType() const { return Type(element, struct_def, enum_def); }
+  Type VectorType() const {
+    return Type(element, struct_def, enum_def, fixed_length);
+  }
 
   Offset<reflection::Type> Serialize(FlatBufferBuilder *builder) const;
+
+  bool Deserialize(const Parser &parser, const reflection::Type *type);
 
   BaseType base_type;
   BaseType element;       // only set if t == BASE_TYPE_VECTOR
   StructDef *struct_def;  // only set if t or element == BASE_TYPE_STRUCT
   EnumDef *enum_def;      // set if t == BASE_TYPE_UNION / BASE_TYPE_UTYPE,
                           // or for an integral type derived from an enum.
+  uint16_t fixed_length;  // only set if t == BASE_TYPE_ARRAY
 };
 
 // Represents a parsed scalar value, it's type, and field offset.
@@ -210,6 +237,15 @@ struct Namespace {
   size_t from_table;  // Part of the namespace corresponds to a message/table.
 };
 
+inline bool operator<(const Namespace &a, const Namespace &b) {
+  size_t min_size = std::min(a.components.size(), b.components.size());
+  for (size_t i = 0; i < min_size; ++i) {
+    if (a.components[i] != b.components[i])
+      return a.components[i] < b.components[i];
+  }
+  return a.components.size() < b.components.size();
+}
+
 // Base class for all definition types (fields, structs_, enums_).
 struct Definition {
   Definition()
@@ -222,6 +258,9 @@ struct Definition {
   flatbuffers::Offset<
       flatbuffers::Vector<flatbuffers::Offset<reflection::KeyValue>>>
   SerializeAttributes(FlatBufferBuilder *builder, const Parser &parser) const;
+
+  bool DeserializeAttributes(Parser &parser,
+                             const Vector<Offset<reflection::KeyValue>> *attrs);
 
   std::string name;
   std::string file;
@@ -241,6 +280,7 @@ struct FieldDef : public Definition {
       : deprecated(false),
         required(false),
         key(false),
+        shared(false),
         native_inline(false),
         flexbuffer(false),
         nested_flatbuffer(NULL),
@@ -249,11 +289,15 @@ struct FieldDef : public Definition {
   Offset<reflection::Field> Serialize(FlatBufferBuilder *builder, uint16_t id,
                                       const Parser &parser) const;
 
+  bool Deserialize(Parser &parser, const reflection::Field *field);
+
   Value value;
   bool deprecated;  // Field is allowed to be present in old data, but can't be.
                     // written in new data nor accessed in new code.
   bool required;    // Field must always be present.
   bool key;         // Field functions as a key for creating sorted vectors.
+  bool shared;  // Field will be using string pooling (i.e. CreateSharedString)
+                // as default serialization behavior if field is a string.
   bool native_inline;  // Field will be defined inline (instead of as a pointer)
                        // for native tables if field is a struct.
   bool flexbuffer;     // This field contains FlexBuffer data.
@@ -279,6 +323,8 @@ struct StructDef : public Definition {
   Offset<reflection::Object> Serialize(FlatBufferBuilder *builder,
                                        const Parser &parser) const;
 
+  bool Deserialize(Parser &parser, const reflection::Object *object);
+
   SymbolTable<FieldDef> fields;
 
   bool fixed;       // If it's struct, not a table.
@@ -295,44 +341,125 @@ inline bool IsStruct(const Type &type) {
   return type.base_type == BASE_TYPE_STRUCT && type.struct_def->fixed;
 }
 
+inline bool IsVector(const Type &type) {
+  return type.base_type == BASE_TYPE_VECTOR;
+}
+
+inline bool IsArray(const Type &type) {
+  return type.base_type == BASE_TYPE_ARRAY;
+}
+
+inline bool IsSeries(const Type &type) {
+  return IsVector(type) || IsArray(type);
+}
+
+inline bool IsEnum(const Type &type) {
+  return type.enum_def != nullptr && IsInteger(type.base_type);
+}
+
 inline size_t InlineSize(const Type &type) {
-  return IsStruct(type) ? type.struct_def->bytesize : SizeOf(type.base_type);
+  return IsStruct(type)
+             ? type.struct_def->bytesize
+             : (IsArray(type)
+                    ? InlineSize(type.VectorType()) * type.fixed_length
+                    : SizeOf(type.base_type));
 }
 
 inline size_t InlineAlignment(const Type &type) {
-  return IsStruct(type) ? type.struct_def->minalign : SizeOf(type.base_type);
+  return IsStruct(type)
+             ? type.struct_def->minalign
+             : (SizeOf(IsArray(type) ? type.element : type.base_type));
 }
 
-struct EnumVal {
-  EnumVal(const std::string &_name, int64_t _val) : name(_name), value(_val) {}
+struct EnumDef;
+struct EnumValBuilder;
 
+struct EnumVal {
   Offset<reflection::EnumVal> Serialize(FlatBufferBuilder *builder, const Parser &parser) const;
+
+  bool Deserialize(const Parser &parser, const reflection::EnumVal *val);
+
+  uint64_t GetAsUInt64() const { return static_cast<uint64_t>(value); }
+  int64_t GetAsInt64() const { return value; }
+  bool IsZero() const { return 0 == value; }
+  bool IsNonZero() const { return !IsZero(); }
 
   std::string name;
   std::vector<std::string> doc_comment;
-  int64_t value;
   Type union_type;
+
+ private:
+  friend EnumDef;
+  friend EnumValBuilder;
+  friend bool operator==(const EnumVal &lhs, const EnumVal &rhs);
+
+  EnumVal(const std::string &_name, int64_t _val) : name(_name), value(_val) {}
+  EnumVal() : value(0) {}
+
+  int64_t value;
 };
 
 struct EnumDef : public Definition {
-  EnumDef() : is_union(false), uses_type_aliases(false) {}
+  EnumDef() : is_union(false), uses_multiple_type_instances(false) {}
 
-  EnumVal *ReverseLookup(int64_t enum_idx, bool skip_union_default = true) {
-    for (auto it = vals.vec.begin() +
-                   static_cast<int>(is_union && skip_union_default);
-         it != vals.vec.end(); ++it) {
-      if ((*it)->value == enum_idx) { return *it; }
-    }
-    return nullptr;
+  Offset<reflection::Enum> Serialize(FlatBufferBuilder *builder,
+                                     const Parser &parser) const;
+
+  bool Deserialize(Parser &parser, const reflection::Enum *values);
+
+  template<typename T> void ChangeEnumValue(EnumVal *ev, T new_val);
+  void SortByValue();
+  void RemoveDuplicates();
+
+  std::string AllFlags() const;
+  const EnumVal *MinValue() const;
+  const EnumVal *MaxValue() const;
+  // Returns the number of integer steps from v1 to v2.
+  uint64_t Distance(const EnumVal *v1, const EnumVal *v2) const;
+  // Returns the number of integer steps from Min to Max.
+  uint64_t Distance() const { return Distance(MinValue(), MaxValue()); }
+
+  EnumVal *ReverseLookup(int64_t enum_idx,
+                         bool skip_union_default = false) const;
+  EnumVal *FindByValue(const std::string &constant) const;
+
+  std::string ToString(const EnumVal &ev) const {
+    return IsUInt64() ? NumToString(ev.GetAsUInt64())
+                      : NumToString(ev.GetAsInt64());
   }
 
-  Offset<reflection::Enum> Serialize(FlatBufferBuilder *builder, const Parser &parser) const;
+  size_t size() const { return vals.vec.size(); }
 
-  SymbolTable<EnumVal> vals;
+  const std::vector<EnumVal *> &Vals() const {
+    FLATBUFFERS_ASSERT(false == vals.vec.empty());
+    return vals.vec;
+  }
+
+  const EnumVal *Lookup(const std::string &enum_name) const {
+    return vals.Lookup(enum_name);
+  }
+
   bool is_union;
-  bool uses_type_aliases;
+  // Type is a union which uses type aliases where at least one type is
+  // available under two different names.
+  bool uses_multiple_type_instances;
   Type underlying_type;
+
+ private:
+  bool IsUInt64() const {
+    return (BASE_TYPE_ULONG == underlying_type.base_type);
+  }
+
+  friend EnumValBuilder;
+  SymbolTable<EnumVal> vals;
 };
+
+inline bool operator==(const EnumVal &lhs, const EnumVal &rhs) {
+  return lhs.value == rhs.value;
+}
+inline bool operator!=(const EnumVal &lhs, const EnumVal &rhs) {
+  return !(lhs == rhs);
+}
 
 inline bool EqualByName(const Type &a, const Type &b) {
   return a.base_type == b.base_type && a.element == b.element &&
@@ -344,11 +471,14 @@ inline bool EqualByName(const Type &a, const Type &b) {
 struct RPCCall : public Definition {
   Offset<reflection::RPCCall> Serialize(FlatBufferBuilder *builder, const Parser &parser) const;
 
+  bool Deserialize(Parser &parser, const reflection::RPCCall *call);
+
   StructDef *request, *response;
 };
 
 struct ServiceDef : public Definition {
   Offset<reflection::Service> Serialize(FlatBufferBuilder *builder, const Parser &parser) const;
+  bool Deserialize(Parser &parser, const reflection::Service *service);
 
   SymbolTable<RPCCall> calls;
 };
@@ -358,6 +488,7 @@ struct IDLOptions {
   bool strict_json;
   bool skip_js_exports;
   bool use_goog_js_export_format;
+  bool use_ES6_js_export_format;
   bool output_default_scalars_in_json;
   int indent_step;
   bool output_enum_identifiers;
@@ -372,9 +503,12 @@ struct IDLOptions {
   bool skip_unexpected_fields_in_json;
   bool generate_name_strings;
   bool generate_object_based_api;
+  bool gen_compare;
   std::string cpp_object_api_pointer_type;
   std::string cpp_object_api_string_type;
+  bool cpp_object_api_string_flexible_constructor;
   bool gen_nullable;
+  bool gen_generated;
   std::string object_prefix;
   std::string object_suffix;
   bool union_value_namespacing;
@@ -388,9 +522,12 @@ struct IDLOptions {
   std::string go_import;
   std::string go_namespace;
   bool reexport_ts_modules;
+  bool js_ts_short_names;
   bool protobuf_ascii_alike;
   bool size_prefixed;
   std::string root_type;
+  bool force_defaults;
+  std::vector<std::string> cpp_includes;
 
   // Possible options for the more general generator below.
   enum Language {
@@ -405,6 +542,10 @@ struct IDLOptions {
     kBinary = 1 << 8,
     kTs = 1 << 9,
     kJsonSchema = 1 << 10,
+    kDart = 1 << 11,
+    kLua = 1 << 12,
+    kLobster = 1 << 13,
+    kRust = 1 << 14,
     kMAX
   };
 
@@ -418,10 +559,15 @@ struct IDLOptions {
   // for code generation.
   unsigned long lang_to_generate;
 
+  // If set (default behavior), empty string and vector fields will be set to
+  // nullptr to make the flatbuffer more compact.
+  bool set_empty_to_null;
+
   IDLOptions()
       : strict_json(false),
         skip_js_exports(false),
         use_goog_js_export_format(false),
+        use_ES6_js_export_format(false),
         output_default_scalars_in_json(false),
         indent_step(2),
         output_enum_identifiers(true),
@@ -436,8 +582,11 @@ struct IDLOptions {
         skip_unexpected_fields_in_json(false),
         generate_name_strings(false),
         generate_object_based_api(false),
+        gen_compare(false),
         cpp_object_api_pointer_type("std::unique_ptr"),
+        cpp_object_api_string_flexible_constructor(false),
         gen_nullable(false),
+        gen_generated(false),
         object_suffix("T"),
         union_value_namespacing(true),
         allow_non_utf8(false),
@@ -447,22 +596,51 @@ struct IDLOptions {
         binary_schema_builtins(false),
         skip_flatbuffers_import(false),
         reexport_ts_modules(true),
+        js_ts_short_names(false),
         protobuf_ascii_alike(false),
         size_prefixed(false),
+        force_defaults(false),
         lang(IDLOptions::kJava),
         mini_reflect(IDLOptions::kNone),
-        lang_to_generate(0) {}
+        lang_to_generate(0),
+        set_empty_to_null(true) {}
 };
 
 // This encapsulates where the parser is in the current source file.
 struct ParserState {
-  ParserState() : cursor_(nullptr), line_(1), token_(-1) {}
+  ParserState()
+      : cursor_(nullptr),
+        line_start_(nullptr),
+        line_(0),
+        token_(-1),
+        attr_is_trivial_ascii_string_(true) {}
 
  protected:
+  void ResetState(const char *source) {
+    cursor_ = source;
+    line_ = 0;
+    MarkNewLine();
+  }
+
+  void MarkNewLine() {
+    line_start_ = cursor_;
+    line_ += 1;
+  }
+
+  int64_t CursorPosition() const {
+    FLATBUFFERS_ASSERT(cursor_ && line_start_ && cursor_ >= line_start_);
+    return static_cast<int64_t>(cursor_ - line_start_);
+  }
+
   const char *cursor_;
+  const char *line_start_;
   int line_;  // the current line being parsed
   int token_;
 
+  // Flag: text in attribute_ is true ASCII string without escape
+  // sequences. Only printable ASCII (without [\t\r\n]).
+  // Used for number-in-string (and base64 string in future).
+  bool attr_is_trivial_ascii_string_;
   std::string attribute_;
   std::vector<std::string> doc_comment_;
 };
@@ -522,7 +700,11 @@ class Parser : public ParserState {
         opts(options),
         uses_flexbuffers_(false),
         source_(nullptr),
-        anonymous_counter(0) {
+        anonymous_counter(0),
+        recurse_protection_counter(0) {
+    if (opts.force_defaults) {
+      builder_.ForceDefaults(true);
+    }
     // Start out with the empty namespace being current.
     empty_namespace_ = new Namespace();
     namespaces_.push_back(empty_namespace_);
@@ -530,6 +712,7 @@ class Parser : public ParserState {
     known_attributes_["deprecated"] = true;
     known_attributes_["required"] = true;
     known_attributes_["key"] = true;
+    known_attributes_["shared"] = true;
     known_attributes_["hash"] = true;
     known_attributes_["id"] = true;
     known_attributes_["force_align"] = true;
@@ -543,11 +726,13 @@ class Parser : public ParserState {
     known_attributes_["cpp_ptr_type"] = true;
     known_attributes_["cpp_ptr_type_get"] = true;
     known_attributes_["cpp_str_type"] = true;
+    known_attributes_["cpp_str_flex_ctor"] = true;
     known_attributes_["native_inline"] = true;
     known_attributes_["native_custom_alloc"] = true;
     known_attributes_["native_type"] = true;
     known_attributes_["native_default"] = true;
     known_attributes_["flexbuffer"] = true;
+    known_attributes_["private"] = true;
   }
 
   ~Parser() {
@@ -585,6 +770,15 @@ class Parser : public ParserState {
   // See reflection/reflection.fbs
   void Serialize();
 
+  // Deserialize a schema buffer
+  bool Deserialize(const uint8_t *buf, const size_t size);
+
+  // Fills internal structure as if the schema passed had been loaded by parsing
+  // with Parse except that included filenames will not be populated.
+  bool Deserialize(const reflection::Schema* schema);
+
+  Type* DeserializeType(const reflection::Type* type);
+
   // Checks that the schema represented by this parser is a safe evolution
   // of the schema provided. Returns non-empty error on any problems.
   std::string ConformTo(const Parser &base);
@@ -594,14 +788,15 @@ class Parser : public ParserState {
   bool ParseFlexBuffer(const char *source, const char *source_filename,
                        flexbuffers::Builder *builder);
 
-  FLATBUFFERS_CHECKED_ERROR CheckInRange(int64_t val, int64_t min, int64_t max);
-
   StructDef *LookupStruct(const std::string &id) const;
+
+  std::string UnqualifiedName(const std::string &fullQualifiedName);
+
+  FLATBUFFERS_CHECKED_ERROR Error(const std::string &msg);
 
  private:
   void Message(const std::string &msg);
   void Warning(const std::string &msg);
-  FLATBUFFERS_CHECKED_ERROR Error(const std::string &msg);
   FLATBUFFERS_CHECKED_ERROR ParseHexNum(int nibbles, uint64_t *val);
   FLATBUFFERS_CHECKED_ERROR Next();
   FLATBUFFERS_CHECKED_ERROR SkipByteOrderMark();
@@ -622,37 +817,23 @@ class Parser : public ParserState {
   FLATBUFFERS_CHECKED_ERROR ParseComma();
   FLATBUFFERS_CHECKED_ERROR ParseAnyValue(Value &val, FieldDef *field,
                                           size_t parent_fieldn,
-                                          const StructDef *parent_struct_def);
-  // clang-format off
-  #if defined(FLATBUFFERS_CPP98_STL)
-    typedef CheckedError (*ParseTableDelimitersBody)(
-        const std::string &name, size_t &fieldn, const StructDef *struct_def,
-        void *state);
-  #else
-    typedef std::function<CheckedError(const std::string&, size_t&,
-                                       const StructDef*, void*)>
-            ParseTableDelimitersBody;
-  #endif  // defined(FLATBUFFERS_CPP98_STL)
-  // clang-format on
+                                          const StructDef *parent_struct_def,
+                                          uoffset_t count,
+                                          bool inside_vector = false);
+  template<typename F>
   FLATBUFFERS_CHECKED_ERROR ParseTableDelimiters(size_t &fieldn,
                                                  const StructDef *struct_def,
-                                                 ParseTableDelimitersBody body,
-                                                 void *state);
+                                                 F body);
   FLATBUFFERS_CHECKED_ERROR ParseTable(const StructDef &struct_def,
                                        std::string *value, uoffset_t *ovalue);
   void SerializeStruct(const StructDef &struct_def, const Value &val);
-  // clang-format off
-  #if defined(FLATBUFFERS_CPP98_STL)
-    typedef CheckedError (*ParseVectorDelimitersBody)(size_t &count,
-                                                      void *state);
-  #else
-    typedef std::function<CheckedError(size_t&, void*)>
-            ParseVectorDelimitersBody;
-  #endif  // defined(FLATBUFFERS_CPP98_STL)
-  // clang-format on
-  FLATBUFFERS_CHECKED_ERROR ParseVectorDelimiters(
-      size_t &count, ParseVectorDelimitersBody body, void *state);
-  FLATBUFFERS_CHECKED_ERROR ParseVector(const Type &type, uoffset_t *ovalue);
+  void SerializeStruct(FlatBufferBuilder &builder, const StructDef &struct_def,
+                       const Value &val);
+  template<typename F>
+  FLATBUFFERS_CHECKED_ERROR ParseVectorDelimiters(uoffset_t &count, F body);
+  FLATBUFFERS_CHECKED_ERROR ParseVector(const Type &type, uoffset_t *ovalue,
+                                        FieldDef *field, size_t fieldn);
+  FLATBUFFERS_CHECKED_ERROR ParseArray(Value &array);
   FLATBUFFERS_CHECKED_ERROR ParseNestedFlatbuffer(Value &val, FieldDef *field,
                                                   size_t fieldn,
                                                   const StructDef *parent_struct_def);
@@ -661,8 +842,8 @@ class Parser : public ParserState {
                                           BaseType req, bool *destmatch);
   FLATBUFFERS_CHECKED_ERROR ParseHash(Value &e, FieldDef* field);
   FLATBUFFERS_CHECKED_ERROR TokenError();
-  FLATBUFFERS_CHECKED_ERROR ParseSingleValue(const std::string *name, Value &e);
-  FLATBUFFERS_CHECKED_ERROR ParseEnumFromString(Type &type, int64_t *result);
+  FLATBUFFERS_CHECKED_ERROR ParseSingleValue(const std::string *name, Value &e, bool check_now);
+  FLATBUFFERS_CHECKED_ERROR ParseEnumFromString(const Type &type, std::string *result);
   StructDef *LookupCreateStruct(const std::string &name,
                                 bool create_if_new = true,
                                 bool definition = false);
@@ -698,8 +879,12 @@ class Parser : public ParserState {
                                        const char *suffix,
                                        BaseType baseType);
 
-  bool SupportsVectorOfUnions() const;
+  bool SupportsAdvancedUnionFeatures() const;
+  bool SupportsAdvancedArrayFeatures() const;
   Namespace *UniqueNamespace(Namespace *ns);
+
+  FLATBUFFERS_CHECKED_ERROR RecurseError();
+  template<typename F> CheckedError Recurse(F f);
 
  public:
   SymbolTable<Type> types_;
@@ -733,6 +918,7 @@ class Parser : public ParserState {
   std::vector<std::pair<Value, FieldDef *>> field_stack_;
 
   int anonymous_counter;
+  int recurse_protection_counter;
 };
 
 // Utility functions for multiple generators:
@@ -747,6 +933,10 @@ extern std::string MakeCamel(const std::string &in, bool first = true);
 // strict_json adds "quotes" around field names if true.
 // If the flatbuffer cannot be encoded in JSON (e.g., it contains non-UTF-8
 // byte arrays in String values), returns false.
+extern bool GenerateTextFromTable(const Parser &parser,
+                                  const void *table,
+                                  const std::string &tablename,
+                                  std::string *text);
 extern bool GenerateText(const Parser &parser,
                          const void *flatbuffer,
                          std::string *text);
@@ -767,9 +957,13 @@ extern bool GenerateCPP(const Parser &parser,
                         const std::string &path,
                         const std::string &file_name);
 
+extern bool GenerateDart(const Parser &parser,
+                         const std::string &path,
+                         const std::string &file_name);
+
 // Generate JavaScript or TypeScript code from the definitions in the Parser object.
 // See idl_gen_js.
-extern bool GenerateJS(const Parser &parser,
+extern bool GenerateJSTS(const Parser &parser,
                        const std::string &path,
                        const std::string &file_name);
 
@@ -790,6 +984,24 @@ extern bool GeneratePhp(const Parser &parser,
 extern bool GeneratePython(const Parser &parser,
                            const std::string &path,
                            const std::string &file_name);
+
+// Generate Lobster files from the definitions in the Parser object.
+// See idl_gen_lobster.cpp.
+extern bool GenerateLobster(const Parser &parser,
+                            const std::string &path,
+                            const std::string &file_name);
+
+// Generate Lua files from the definitions in the Parser object.
+// See idl_gen_lua.cpp.
+extern bool GenerateLua(const Parser &parser,
+                      const std::string &path,
+                      const std::string &file_name);
+
+// Generate Rust files from the definitions in the Parser object.
+// See idl_gen_rust.cpp.
+extern bool GenerateRust(const Parser &parser,
+                         const std::string &path,
+                         const std::string &file_name);
 
 // Generate Json schema file
 // See idl_gen_json_schema.cpp.
@@ -813,7 +1025,7 @@ extern bool GenerateFBS(const Parser &parser,
 
 // Generate a make rule for the generated JavaScript or TypeScript code.
 // See idl_gen_js.cpp.
-extern std::string JSMakeRule(const Parser &parser,
+extern std::string JSTSMakeRule(const Parser &parser,
                               const std::string &path,
                               const std::string &file_name);
 
@@ -822,6 +1034,18 @@ extern std::string JSMakeRule(const Parser &parser,
 extern std::string CPPMakeRule(const Parser &parser,
                                const std::string &path,
                                const std::string &file_name);
+
+// Generate a make rule for the generated Dart code
+// see idl_gen_dart.cpp
+extern std::string DartMakeRule(const Parser &parser,
+                                const std::string &path,
+                                const std::string &file_name);
+
+// Generate a make rule for the generated Rust code.
+// See idl_gen_rust.cpp.
+extern std::string RustMakeRule(const Parser &parser,
+                                const std::string &path,
+                                const std::string &file_name);
 
 // Generate a make rule for the generated Java/C#/... files.
 // See idl_gen_general.cpp.
